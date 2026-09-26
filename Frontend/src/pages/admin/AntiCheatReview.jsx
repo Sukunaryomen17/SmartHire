@@ -1,122 +1,115 @@
-import { useMemo, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useEffect, useMemo, useState } from "react"
+
+import API from "../../api"
 
 import Badge from "../../components/common/Badge"
 import Card from "../../components/common/Card"
 import DashboardLayout from "../../components/layout/DashboardLayout"
 import PageHeader from "../../components/layout/PageHeader"
 
-const candidates = [
-  {
-    id: 1,
-    name: "Aarav Kumar",
-    role: "Frontend Developer",
-    testStatus: "Completed",
-    tabSwitches: 0,
-    pasteAttempts: 0,
-    fullscreenExits: 0,
-    reviewStatus: "Clear",
-  },
-  {
-    id: 2,
-    name: "Priya Sharma",
-    role: "Java Backend Developer",
-    testStatus: "Completed",
-    tabSwitches: 1,
-    pasteAttempts: 0,
-    fullscreenExits: 0,
-    reviewStatus: "Clear",
-  },
-  {
-    id: 3,
-    name: "Rahul Raj",
-    role: "Python Developer",
-    testStatus: "Completed",
-    tabSwitches: 3,
-    pasteAttempts: 2,
-    fullscreenExits: 1,
-    reviewStatus: "Needs Review",
-  },
-  {
-    id: 4,
-    name: "Ananya S",
-    role: "Frontend Developer",
-    testStatus: "Completed",
-    tabSwitches: 5,
-    pasteAttempts: 3,
-    fullscreenExits: 2,
-    reviewStatus: "Needs Review",
-  },
-  {
-    id: 5,
-    name: "Karthik M",
-    role: "Java Backend Developer",
-    testStatus: "Completed",
-    tabSwitches: 0,
-    pasteAttempts: 1,
-    fullscreenExits: 0,
-    reviewStatus: "Clear",
-  },
-]
-
 function AntiCheatReview() {
-  const navigate = useNavigate()
-
+  const [candidates, setCandidates] = useState([])
   const [reviewFilter, setReviewFilter] = useState("All")
   const [selectedCandidate, setSelectedCandidate] = useState(null)
 
-  const getTotalSignals = (candidate) => {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    loadCandidates()
+  }, [])
+
+  const loadCandidates = async () => {
+    try {
+      setLoading(true)
+      setError("")
+
+      const response = await API.get("/candidates")
+
+      const data = Array.isArray(response.data)
+        ? response.data
+        : response.data?.data || response.data?.candidates || []
+
+      setCandidates(data)
+    } catch (err) {
+      console.error(err)
+
+      setError(
+        err.response?.data?.message ||
+          "Unable to load candidate activity."
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getJobTitle = (candidate) => {
     return (
-      candidate.tabSwitches +
-      candidate.pasteAttempts +
-      candidate.fullscreenExits
+      candidate.appliedJobId?.title ||
+      candidate.appliedJob?.title ||
+      "Position not available"
     )
+  }
+
+  const getTestStatus = (candidate) => {
+    if (candidate.testScore != null) {
+      return "Completed"
+    }
+
+    return "Not available"
   }
 
   const filteredCandidates = useMemo(() => {
     if (reviewFilter === "Needs Review") {
       return candidates.filter(
-        (candidate) => candidate.reviewStatus === "Needs Review"
+        (candidate) => candidate.testScore != null
       )
     }
 
     if (reviewFilter === "Clear") {
       return candidates.filter(
-        (candidate) => candidate.reviewStatus === "Clear"
+        (candidate) => candidate.testScore == null
       )
     }
 
     return candidates
-  }, [reviewFilter])
+  }, [candidates, reviewFilter])
 
-  const reviewCount = candidates.filter(
-    (candidate) => candidate.reviewStatus === "Needs Review"
+  const completedTests = candidates.filter(
+    (candidate) => candidate.testScore != null
   ).length
-
-  const totalTabSwitches = candidates.reduce(
-    (total, candidate) => total + candidate.tabSwitches,
-    0
-  )
-
-  const totalPasteAttempts = candidates.reduce(
-    (total, candidate) => total + candidate.pasteAttempts,
-    0
-  )
 
   return (
     <DashboardLayout topbarTitle="Anti-cheat review">
       <PageHeader
         eyebrow="Candidate monitoring"
         title="Anti-Cheat Review"
-        description="Review screening-test activity recorded during candidate assessments."
+        description="Review screening-test information recorded for candidate assessments."
       />
 
-      {/* Summary */}
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {error && (
+        <div className="mb-6 rounded-lg border border-[#e2d4c6] bg-[#faf4ed] px-4 py-3">
+          <p className="text-sm text-[#7a5c42]">
+            {error}
+          </p>
+        </div>
+      )}
 
+      <div className="mb-6 rounded-lg border border-[#d6dcd2] bg-[#f1f3ee] px-4 py-3">
+        <p className="text-sm font-medium text-[#59684c]">
+          Anti-cheat event tracking is not stored by the current backend.
+        </p>
+
+        <p className="mt-1 text-xs leading-5 text-[#697066]">
+          TestAttempt currently stores test answers, score, timestamps and status,
+          but it does not contain tab-switch, paste or fullscreen-exit fields.
+        </p>
+      </div>
+
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="p-5">
           <p className="text-sm text-[#697066]">
-            Candidates Reviewed
+            Candidates
           </p>
 
           <p className="mt-2 text-3xl font-semibold text-[#292d28]">
@@ -124,21 +117,21 @@ function AntiCheatReview() {
           </p>
 
           <p className="mt-1 text-xs text-[#838a7f]">
-            Screening activity records
+            Loaded from MongoDB
           </p>
         </Card>
 
         <Card className="p-5">
           <p className="text-sm text-[#697066]">
-            Needs Review
+            Tests Completed
           </p>
 
           <p className="mt-2 text-3xl font-semibold text-[#292d28]">
-            {reviewCount}
+            {completedTests}
           </p>
 
           <p className="mt-1 text-xs text-[#838a7f]">
-            Candidates with activity signals
+            Based on stored test scores
           </p>
         </Card>
 
@@ -148,11 +141,11 @@ function AntiCheatReview() {
           </p>
 
           <p className="mt-2 text-3xl font-semibold text-[#292d28]">
-            {totalTabSwitches}
+            —
           </p>
 
           <p className="mt-1 text-xs text-[#838a7f]">
-            Recorded during tests
+            Not currently stored
           </p>
         </Card>
 
@@ -162,34 +155,33 @@ function AntiCheatReview() {
           </p>
 
           <p className="mt-2 text-3xl font-semibold text-[#292d28]">
-            {totalPasteAttempts}
+            —
           </p>
 
           <p className="mt-1 text-xs text-[#838a7f]">
-            Recorded during tests
+            Not currently stored
           </p>
         </Card>
-
       </div>
 
-      {/* Filters */}
       <Card className="mb-6 p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-
           <div>
             <h2 className="text-base font-semibold text-[#292d28]">
               Test activity
             </h2>
 
             <p className="mt-1 text-sm text-[#697066]">
-              Review candidate activity before making a decision.
+              Review the screening-test information available from the backend.
             </p>
           </div>
 
           <select
             aria-label="Filter anti-cheat review"
             value={reviewFilter}
-            onChange={(event) => setReviewFilter(event.target.value)}
+            onChange={(event) =>
+              setReviewFilter(event.target.value)
+            }
             className="min-h-11 rounded-lg border border-[#cbd1c7] bg-[#fffefa] px-3.5 py-2.5 text-sm text-[#434a40] outline-none transition-colors hover:border-[#aeb6a8] focus:border-[#879276] focus:ring-2 focus:ring-[#879276]/20"
           >
             <option value="All">
@@ -197,32 +189,35 @@ function AntiCheatReview() {
             </option>
 
             <option value="Needs Review">
-              Needs Review
+              Test Completed
             </option>
 
             <option value="Clear">
-              Clear
+              Test Not Completed
             </option>
           </select>
-
         </div>
       </Card>
 
-      {/* Candidate activity table */}
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
-
-          <table className="w-full min-w-[1050px] text-left">
-
+          <table className="w-full min-w-[900px] text-left">
             <thead className="border-b border-[#dfe4db] bg-[#edf0ea]">
               <tr>
-
                 <th className="px-5 py-4 text-xs font-medium uppercase tracking-wide text-[#747b71] sm:px-6">
                   Candidate
                 </th>
 
                 <th className="px-5 py-4 text-xs font-medium uppercase tracking-wide text-[#747b71] sm:px-6">
                   Position
+                </th>
+
+                <th className="px-5 py-4 text-xs font-medium uppercase tracking-wide text-[#747b71] sm:px-6">
+                  Test Status
+                </th>
+
+                <th className="px-5 py-4 text-xs font-medium uppercase tracking-wide text-[#747b71] sm:px-6">
+                  Test Score
                 </th>
 
                 <th className="px-5 py-4 text-xs font-medium uppercase tracking-wide text-[#747b71] sm:px-6">
@@ -234,35 +229,40 @@ function AntiCheatReview() {
                 </th>
 
                 <th className="px-5 py-4 text-xs font-medium uppercase tracking-wide text-[#747b71] sm:px-6">
-                  Fullscreen Exits
-                </th>
-
-                <th className="px-5 py-4 text-xs font-medium uppercase tracking-wide text-[#747b71] sm:px-6">
-                  Total Signals
-                </th>
-
-                <th className="px-5 py-4 text-xs font-medium uppercase tracking-wide text-[#747b71] sm:px-6">
                   Review
                 </th>
 
                 <th className="px-5 py-4 text-xs font-medium uppercase tracking-wide text-[#747b71] sm:px-6">
                   Action
                 </th>
-
               </tr>
             </thead>
 
             <tbody className="divide-y divide-[#e7eae3]">
-
-              {filteredCandidates.map((candidate) => {
-                const totalSignals = getTotalSignals(candidate)
-
-                return (
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan="8"
+                    className="px-5 py-10 text-center text-sm text-[#697066]"
+                  >
+                    Loading candidates...
+                  </td>
+                </tr>
+              ) : filteredCandidates.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan="8"
+                    className="px-5 py-10 text-center text-sm text-[#697066]"
+                  >
+                    No candidates found.
+                  </td>
+                </tr>
+              ) : (
+                filteredCandidates.map((candidate) => (
                   <tr
-                    key={candidate.id}
+                    key={candidate._id}
                     className="transition-colors hover:bg-[#f0f3ed]"
                   >
-
                     <td className="px-5 py-4 sm:px-6">
                       <p className="font-medium text-[#292d28]">
                         {candidate.name}
@@ -270,47 +270,40 @@ function AntiCheatReview() {
                     </td>
 
                     <td className="px-5 py-4 text-sm text-[#697066] sm:px-6">
-                      {candidate.role}
-                    </td>
-
-                    <td className="px-5 py-4 text-sm text-[#292d28] sm:px-6">
-                      {candidate.tabSwitches}
-                    </td>
-
-                    <td className="px-5 py-4 text-sm text-[#292d28] sm:px-6">
-                      {candidate.pasteAttempts}
-                    </td>
-
-                    <td className="px-5 py-4 text-sm text-[#292d28] sm:px-6">
-                      {candidate.fullscreenExits}
-                    </td>
-
-                    <td className="px-5 py-4 sm:px-6">
-                      <span
-                        className={`text-sm font-medium ${
-                          totalSignals > 0
-                            ? "text-[#7a5c42]"
-                            : "text-[#59684c]"
-                        }`}
-                      >
-                        {totalSignals}
-                      </span>
+                      {getJobTitle(candidate)}
                     </td>
 
                     <td className="px-5 py-4 sm:px-6">
                       <Badge
                         status={
-                          candidate.reviewStatus === "Needs Review"
-                            ? "Review"
-                            : "Completed"
+                          candidate.testScore != null
+                            ? "Completed"
+                            : "Review"
                         }
                       >
-                        {candidate.reviewStatus}
+                        {getTestStatus(candidate)}
+                      </Badge>
+                    </td>
+
+                    <td className="px-5 py-4 text-sm font-medium text-[#292d28] sm:px-6">
+                      {candidate.testScore ?? "-"}
+                    </td>
+
+                    <td className="px-5 py-4 text-sm text-[#697066] sm:px-6">
+                      Not tracked
+                    </td>
+
+                    <td className="px-5 py-4 text-sm text-[#697066] sm:px-6">
+                      Not tracked
+                    </td>
+
+                    <td className="px-5 py-4 sm:px-6">
+                      <Badge status="Review">
+                        Manual Review
                       </Badge>
                     </td>
 
                     <td className="px-5 py-4 sm:px-6">
-
                       <button
                         type="button"
                         onClick={() =>
@@ -320,37 +313,18 @@ function AntiCheatReview() {
                       >
                         View Activity
                       </button>
-
                     </td>
-
                   </tr>
-                )
-              })}
-
-              {filteredCandidates.length === 0 && (
-                <tr>
-                  <td
-                    colSpan="8"
-                    className="px-5 py-10 text-center text-sm text-[#697066]"
-                  >
-                    No candidates found.
-                  </td>
-                </tr>
+                ))
               )}
-
             </tbody>
-
           </table>
-
         </div>
       </Card>
 
-      {/* Activity detail */}
       {selectedCandidate && (
         <Card className="mt-6 p-5 sm:p-6">
-
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-[#737d68]">
                 Activity details
@@ -361,7 +335,7 @@ function AntiCheatReview() {
               </h2>
 
               <p className="mt-1 text-sm text-[#697066]">
-                {selectedCandidate.role}
+                {getJobTitle(selectedCandidate)}
               </p>
             </div>
 
@@ -372,87 +346,54 @@ function AntiCheatReview() {
             >
               Close
             </button>
-
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-
             <div className="rounded-lg border border-[#e0e4dc] bg-[#f1f3ee] p-4">
               <p className="text-xs text-[#838a7f]">
-                Tab switches
+                Test status
               </p>
 
               <p className="mt-1 text-2xl font-semibold text-[#292d28]">
-                {selectedCandidate.tabSwitches}
-              </p>
-
-              <p className="mt-1 text-xs text-[#697066]">
-                Times the test tab lost visibility
+                {getTestStatus(selectedCandidate)}
               </p>
             </div>
 
             <div className="rounded-lg border border-[#e0e4dc] bg-[#f1f3ee] p-4">
               <p className="text-xs text-[#838a7f]">
-                Paste attempts
+                Test score
               </p>
 
               <p className="mt-1 text-2xl font-semibold text-[#292d28]">
-                {selectedCandidate.pasteAttempts}
-              </p>
-
-              <p className="mt-1 text-xs text-[#697066]">
-                Paste events detected
+                {selectedCandidate.testScore ?? "-"}
               </p>
             </div>
 
             <div className="rounded-lg border border-[#e0e4dc] bg-[#f1f3ee] p-4">
               <p className="text-xs text-[#838a7f]">
-                Fullscreen exits
+                Anti-cheat events
               </p>
 
               <p className="mt-1 text-2xl font-semibold text-[#292d28]">
-                {selectedCandidate.fullscreenExits}
-              </p>
-
-              <p className="mt-1 text-xs text-[#697066]">
-                Fullscreen exit events
+                Not tracked
               </p>
             </div>
-
           </div>
 
           <div className="mt-6 rounded-lg border border-[#d6dcd2] bg-[#f1f3ee] p-4">
-
             <p className="text-sm font-medium text-[#292d28]">
               Administrative review
             </p>
 
             <p className="mt-1 text-sm leading-6 text-[#697066]">
-              These signals are provided as review information. They do not
-              automatically determine the candidate's result.
+              The current TestAttempt backend stores answers, score,
+              timestamps and submission status. It does not currently
+              store browser activity such as tab switches, paste attempts
+              or fullscreen exits.
             </p>
-
           </div>
-
-          <div className="mt-5 flex flex-wrap gap-3">
-
-            <button
-              type="button"
-              onClick={() =>
-                navigate(
-                  `/admin/candidates/${selectedCandidate.id}`
-                )
-              }
-              className="rounded-lg bg-[#59684c] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#4d5b42]"
-            >
-              View Candidate
-            </button>
-
-          </div>
-
         </Card>
       )}
-
     </DashboardLayout>
   )
 }

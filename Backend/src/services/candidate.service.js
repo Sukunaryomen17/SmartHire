@@ -1,272 +1,106 @@
 const axios = require("axios");
+const Candidate = require("../models/Candidate");
+const Job = require("../models/Job");
 
-const Candidate =
-  require("../models/Candidate");
+const FASTAPI_URL = process.env.FASTAPI_URL || "http://127.0.0.1:8000";
 
-const Resume =
-  require("../models/Resume");
+const buildProfileText = (candidate) => [
+  `Name: ${candidate.name}`,
+  `Location: ${candidate.location || "Not specified"}`,
+  `Education: ${candidate.education || "Not specified"}`,
+  `Experience: ${candidate.experienceYears || 0} years`,
+  `Skills: ${(candidate.skills || []).join(", ") || "Not specified"}`,
+  `Projects: ${(candidate.projects || []).join("; ") || "Not specified"}`,
+  `Profile summary: ${candidate.profileSummary || "Not specified"}`,
+].join("\n");
 
-const Job =
-  require("../models/Job");
+const jobToMLDescription = (job) => ({
+  title: job.title,
+  must_have: job.mustHave?.length ? job.mustHave : (job.requirements || []),
+  nice_to_have: job.niceToHave?.length ? job.niceToHave : [],
+  experience_years: job.experienceRequired || 0,
+  education: job.educationRequired || "",
+  location: job.location || "",
+  summary: job.description || "",
+});
 
-const FASTAPI_URL =
-  process.env.FASTAPI_URL ||
-  "http://127.0.0.1:8000";
-
-/*
- * Send candidate + job + resume
- * to FastAPI for screening.
- */
-const screenCandidateWithAI =
-  async (job, resume) => {
-    try {
-      const response =
-        await axios.post(
-          `${FASTAPI_URL}/api/v1/screen-resume`,
-          {
-            jobId:
-              job._id.toString(),
-
-            resumeId:
-              resume._id.toString(),
-
-            job: {
-              title: job.title,
-
-              description:
-                job.description,
-
-              requirements:
-                job.requirements,
-
-              skills:
-                job.skills,
-
-              experienceRequired:
-                job.experienceRequired,
-
-              educationRequired:
-                job.educationRequired,
-            },
-
-            resume: {
-              parsedData:
-                resume.parsedData,
-
-              aiAnalysis:
-                resume.aiAnalysis,
-            },
-          },
-          {
-            timeout: 180000,
-          }
-        );
-
-      return response.data;
-    } catch (error) {
-      console.error(
-        "FastAPI screening failed:",
-        error.message
-      );
-
-      if (error.response) {
-        console.error(
-          "FastAPI response:",
-          error.response.data
-        );
-      }
-
-      throw new Error(
-        "FastAPI candidate screening failed"
-      );
-    }
-  };
-
-/*
- * Create candidate.
- */
-const createCandidate =
-  async (candidateData) => {
-    const candidate =
-      await Candidate.create(
-        candidateData
-      );
-
-    /*
-     * If resume exists,
-     * automatically perform Score 1.
-     */
-    if (candidate.resumeId) {
-      const resume =
-        await Resume.findById(
-          candidate.resumeId
-        );
-
-      const job =
-        await Job.findById(
-          candidate.appliedJobId
-        );
-
-      if (resume && job) {
-        try {
-          const aiResult =
-            await screenCandidateWithAI(
-              job,
-              resume
-            );
-
-          candidate.screeningResult =
-            aiResult;
-
-          candidate.resumeScore =
-            aiResult.score ??
-            aiResult.overallScore ??
-            aiResult.screeningScore ??
-            null;
-
-          candidate.matchedSkills =
-            aiResult.matchedSkills ||
-            [];
-
-          candidate.missingSkills =
-            aiResult.missingSkills ||
-            [];
-
-          candidate.screeningStatus =
-            aiResult.screeningStatus ||
-            "pending";
-
-          await candidate.save();
-        } catch (error) {
-          console.error(
-            "Initial screening failed:",
-            error.message
-          );
-        }
-      }
-    }
-
-    return candidate;
-  };
-
-/*
- * Get all candidates.
- */
-const getAllCandidates =
-  async () => {
-    return await Candidate.find()
-      .populate("appliedJobId")
-      .populate("resumeId")
-      .sort({
-        createdAt: -1,
-      });
-  };
-
-/*
- * Get candidate by ID.
- */
-const getCandidateById =
-  async (id) => {
-    return await Candidate.findById(id)
-      .populate("appliedJobId")
-      .populate("resumeId");
-  };
-
-/*
- * Get candidates for a job.
- */
-const getCandidatesByJob =
-  async (jobId) => {
-    return await Candidate.find({
-      appliedJobId: jobId,
-    })
-      .populate("resumeId")
-      .sort({
-        resumeScore: -1,
-      });
-  };
-
-/*
- * Update candidate status.
- */
-const updateCandidateStatus =
-  async (
-    id,
-    screeningStatus
-  ) => {
-    return await Candidate.findByIdAndUpdate(
-      id,
+const screenCandidateWithAI = async (job, candidate) => {
+  try {
+    const response = await axios.post(
+      `${FASTAPI_URL}/api/llm/resume-match`,
       {
-        screeningStatus,
+        candidate_id: candidate._id.toString(),
+        jd_id: job._id.toString(),
+        job_description: jobToMLDescription(job),
+        resume: candidate.profileText || buildProfileText(candidate),
       },
-      {
-        new: true,
-        runValidators: true,
-      }
+      { timeout: 180000 }
     );
-  };
+    return response.data;
+  } catch (error) {
+    console.error("FastAPI screening failed:", error.message);
+    if (error.response) console.error("FastAPI response:", error.response.data);
+    throw new Error("FastAPI candidate screening failed");
+  }
+};
 
-/*
- * Run Score 1 again.
- */
-const rescreenCandidate =
-  async (candidateId) => {
-    const candidate =
-      await Candidate.findById(
-        candidateId
-      );
+const applyScreeningResult = (candidate, job, aiResult) => {
+  candidate.screeningResult = aiResult;
+  candidate.resumeScore = aiResult.score ?? null;
+  candidate.matchedSkills = aiResult.matched_skills || aiResult.matchedSkills || [];
+  candidate.missingSkills = aiResult.gaps || aiResult.missingSkills || [];
+  const threshold = Number(job.threshold ?? 70);
+  candidate.screeningStatus = candidate.resumeScore !== null && candidate.resumeScore >= threshold
+    ? "shortlisted"
+    : "rejected";
+  candidate.screeningError = "";
+};
 
-    if (!candidate) {
-      return null;
-    }
+const createCandidate = async (candidateData) => {
+  const candidate = await Candidate.create(candidateData);
+  candidate.profileText = buildProfileText(candidate);
 
-    const resume =
-      await Resume.findById(
-        candidate.resumeId
-      );
+  const job = await Job.findById(candidate.appliedJobId);
+  if (!job) throw new Error("Job not found");
 
-    const job =
-      await Job.findById(
-        candidate.appliedJobId
-      );
+  try {
+    const aiResult = await screenCandidateWithAI(job, candidate);
+    applyScreeningResult(candidate, job, aiResult);
+  } catch (error) {
+    candidate.screeningStatus = "pending";
+    candidate.screeningError = error.message;
+  }
 
-    if (!resume || !job) {
-      throw new Error(
-        "Resume or job not found"
-      );
-    }
+  await candidate.save();
+  return candidate;
+};
 
-    const aiResult =
-      await screenCandidateWithAI(
-        job,
-        resume
-      );
+const getAllCandidates = async () => Candidate.find()
+  .populate("appliedJobId")
+  .sort({ createdAt: -1 });
 
-    candidate.screeningResult =
-      aiResult;
+const getCandidateById = async (id) => Candidate.findById(id).populate("appliedJobId");
 
-    candidate.resumeScore =
-      aiResult.score ??
-      aiResult.overallScore ??
-      aiResult.screeningScore ??
-      null;
+const getCandidatesByJob = async (jobId) => Candidate.find({ appliedJobId: jobId })
+  .populate("appliedJobId")
+  .sort({ resumeScore: -1, createdAt: -1 });
 
-    candidate.matchedSkills =
-      aiResult.matchedSkills ||
-      [];
+const updateCandidateStatus = async (id, screeningStatus) => Candidate.findByIdAndUpdate(
+  id, { screeningStatus }, { new: true, runValidators: true }
+);
 
-    candidate.missingSkills =
-      aiResult.missingSkills ||
-      [];
+const rescreenCandidate = async (candidateId) => {
+  const candidate = await Candidate.findById(candidateId);
+  if (!candidate) return null;
+  const job = await Job.findById(candidate.appliedJobId);
+  if (!job) throw new Error("Job not found");
 
-    candidate.screeningStatus =
-      aiResult.screeningStatus ||
-      "pending";
-
-    await candidate.save();
-
-    return candidate;
-  };
+  candidate.profileText = buildProfileText(candidate);
+  const aiResult = await screenCandidateWithAI(job, candidate);
+  applyScreeningResult(candidate, job, aiResult);
+  await candidate.save();
+  return candidate;
+};
 
 module.exports = {
   screenCandidateWithAI,
