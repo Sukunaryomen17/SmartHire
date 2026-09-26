@@ -1,0 +1,6 @@
+google-genai>=0.1.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
