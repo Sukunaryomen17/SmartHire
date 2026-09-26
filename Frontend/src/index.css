@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+:root {
+  font-family: Inter, "Segoe UI", sans-serif;
+  --font-editorial: Georgia, Cambria, "Times New Roman", serif;
+  color: #292d28;
+  background: #e6ebe3;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-editorial);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: #e6ebe3;
+}
+
+.dashboard-canvas {
+  background: #e6ebe3;
+}
